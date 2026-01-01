@@ -1,0 +1,1 @@
+export { default, app, auth, db, firestore } from '../../src/services/firebase';

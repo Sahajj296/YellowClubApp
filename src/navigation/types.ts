@@ -1,0 +1,9 @@
+// This file defines the types for the navigation in the app
+
+export type RootStackParamList = {
+  // ...existing code...
+  Profile: { userId?: string; hostId?: string };
+  // ...existing code...
+};
+
+// ...existing code...
