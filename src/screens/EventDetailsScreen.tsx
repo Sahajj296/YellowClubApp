@@ -7,6 +7,7 @@ import {
   Pressable,
   Animated,
   ActivityIndicator,
+  TouchableOpacity,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useBookings } from '../store/BookingContext';
@@ -86,14 +87,19 @@ export default function EventDetailsScreen() {
         {description && (
           <Text style={styles.description}>{description}</Text>
         )}
+        <View style={styles.exploreMoreContainer}>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate('Explore')}
+          >
+            <Text style={styles.exploreMoreText}>Explore more meetups →</Text>
+          </TouchableOpacity>
+        </View>
         <Pressable
           style={({ pressed }) => [
             styles.primaryButton,
-            (isBooked || loading) && { backgroundColor: '#CCCCCC' },
-            {
-              transform: [{ scale: pressed ? 0.98 : 1 }],
-              opacity: pressed ? 0.85 : 1,
-            },
+            (!isBooked && !loading && pressed) && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+            (isBooked || loading) && styles.primaryDisabled,
           ]}
           onPress={loading || isBooked ? undefined : onBookEvent}
           disabled={isBooked || loading}
@@ -106,6 +112,9 @@ export default function EventDetailsScreen() {
             </Text>
           )}
         </Pressable>
+        {isBooked && (
+          <Text style={styles.successNote}>You’re already booked for this experience.</Text>
+        )}
       </View>
     </View>
   );
@@ -213,9 +222,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: '100%',
   },
+  primaryDisabled: {
+    backgroundColor: '#CFCFCF',
+  },
   primaryText: {
     color: '#FFD400',
     fontSize: 16,
     fontWeight: '600',
+  },
+  successNote: {
+    marginTop: 12,
+    fontSize: 13,
+    color: '#1F5F3D',
+    backgroundColor: '#E0F5E9',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  exploreMoreContainer: {
+    alignItems: 'center',
+    marginTop: 24,
+    marginBottom: 16,
+  },
+  exploreMoreText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFD700',
   },
 });

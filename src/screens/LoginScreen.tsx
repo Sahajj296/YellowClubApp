@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { useProfile } from '../context/ProfileContext';
 import { db } from '../services/firebase';
+import { trackEvent } from '../services/analytics';
+import { DEMO_AUTH } from '../config/env';
 
 export default function LoginScreen() {
   const { setAuthUser } = useAuth();
@@ -20,13 +22,56 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const canSubmit = useMemo(
-    () => email.trim().length > 0 && password.length > 0,
-    [email, password]
+    () => email.trim().length > 0 && password.trim().length > 0,
+    [email, password],
   );
-  const isDisabled = loading || !canSubmit;
+  const isDisabled = DEMO_AUTH ? false : loading || !canSubmit;
+  const autoLoginRef = useRef(false);
+  const demoAuthUser = useMemo(
+    () => ({
+      uid: 'demo-user-001',
+      email: 'demo@yellowclub.app',
+      role: 'user' as const,
+      name: 'Demo User',
+    }),
+    [],
+  );
 
-  const onLogin = async () => {
-    if (isDisabled) return;
+  const onLogin = useCallback(async () => {
+    if (loading) return;
+
+    if (DEMO_AUTH) {
+      const trimmedEmail = email.trim().toLowerCase();
+      const trimmedPassword = password.trim();
+      if (!trimmedEmail || !trimmedPassword) {
+        return;
+      }
+      setLoading(true);
+      try {
+        const derivedName = trimmedEmail.split('@')[0] ?? trimmedEmail;
+        const sessionUser = {
+          uid: trimmedEmail,
+          email: trimmedEmail,
+          role: 'user' as const,
+          name: derivedName,
+        };
+
+        await setAuthUser(sessionUser);
+        await hydrateCurrentUser({
+          id: sessionUser.uid,
+          email: sessionUser.email,
+          name: sessionUser.name,
+          role: 'user',
+        });
+        clearViewedProfile();
+        trackEvent('login_success');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (loading || !canSubmit) return;
     setLoading(true);
     try {
       const userId = email.trim().toLowerCase();
@@ -42,7 +87,7 @@ export default function LoginScreen() {
         await setDoc(
           userRef,
           { email: userId, name, role },
-          { merge: true }
+          { merge: true },
         );
       }
       const profile = { id: userId, email: userId, name, role };
@@ -54,12 +99,29 @@ export default function LoginScreen() {
       });
       await hydrateCurrentUser(profile);
       clearViewedProfile();
+      trackEvent('login_success');
     } catch (error) {
       Alert.alert('Login failed', 'Please try again.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    canSubmit,
+    clearViewedProfile,
+    demoAuthUser,
+    email,
+    hydrateCurrentUser,
+    loading,
+    setAuthUser,
+  ]);
+
+  useEffect(() => {
+    if (!DEMO_AUTH || autoLoginRef.current) {
+      return;
+    }
+    autoLoginRef.current = true;
+    onLogin();
+  }, [onLogin]);
 
   return (
     <View style={styles.container}>
@@ -67,15 +129,18 @@ export default function LoginScreen() {
 
       <TextInput
         placeholder="Email"
-        placeholderTextColor="#555"
+        placeholderTextColor="#666"
+        cursorColor="#000"
         value={email}
         onChangeText={setEmail}
         style={styles.input}
+        autoCapitalize="none"
       />
 
       <TextInput
         placeholder="Password"
-        placeholderTextColor="#555"
+        placeholderTextColor="#666"
+        cursorColor="#000"
         secureTextEntry
         value={password}
         onChangeText={setPassword}
@@ -84,11 +149,18 @@ export default function LoginScreen() {
       <Text style={styles.helperText}>
         Enter your email and password to continue
       </Text>
+      {DEMO_AUTH ? (
+        <Text style={styles.demoCaption}>
+          Demo Environment – Authentication disabled
+        </Text>
+      ) : (
+        <Text style={styles.demoCaption}>Demo Environment</Text>
+      )}
 
       <Pressable
         style={({ pressed }) => [
           styles.button,
-          (pressed && !isDisabled) && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+          !isDisabled && pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
           isDisabled && styles.buttonDisabled,
         ]}
         onPress={isDisabled ? undefined : onLogin}
@@ -107,41 +179,51 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFD400',
+    backgroundColor: '#FAFAF7',
     padding: 24,
     justifyContent: 'center',
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#000',
-    marginBottom: 32,
+    color: '#1A365D',
+    marginBottom: 24,
     textAlign: 'center',
   },
   input: {
-    backgroundColor: '#FFF',
-    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
     padding: 14,
     fontSize: 16,
     marginBottom: 16,
+    color: '#2C2C2C',
+    borderWidth: 1,
+    borderColor: '#E8E8E3',
   },
   button: {
-    backgroundColor: '#000',
+    backgroundColor: '#FFC107',
     paddingVertical: 14,
-    borderRadius: 8,
-    marginTop: 8,
+    borderRadius: 10,
+    marginTop: 12,
+    elevation: 4,
   },
   buttonDisabled: {
     opacity: 0.5,
   },
   helperText: {
-    marginBottom: 16,
+    marginBottom: 6,
     fontSize: 13,
-    color: '#444',
-    opacity: 0.75,
+    color: '#6B6B6B',
+  },
+  demoCaption: {
+    marginBottom: 16,
+    fontSize: 12,
+    color: '#6B6B6B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
   },
   buttonText: {
-    color: '#FFD400',
+    color: '#2C2C2C',
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',

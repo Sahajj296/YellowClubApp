@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, {
 	createContext,
 	useCallback,
@@ -14,6 +15,8 @@ import {
 	type Meetup,
 	type MeetupParticipant,
 } from '../services/api/meetups';
+import { DEMO_AUTH } from '../config/env';
+import { AnyMeetup, MeetupSource } from '../types/meetup';
 import { useProfile } from './ProfileContext';
 
 type MeetupContextValue = {
@@ -31,6 +34,54 @@ type MeetupContextValue = {
 
 const MeetupContext = createContext<MeetupContextValue | undefined>(undefined);
 
+const CUSTOM_DEMO_MEETUPS_KEY = 'demo_custom_meetups';
+
+const persistCustomMeetups = async (items: Meetup[]) => {
+	if (!DEMO_AUTH) return;
+	const custom = items.filter(entry => entry.source === 'demo' && entry.id.startsWith('demo-'));
+	try {
+		await AsyncStorage.setItem(CUSTOM_DEMO_MEETUPS_KEY, JSON.stringify(custom));
+	} catch (error) {
+		console.warn('[MeetupProvider] Failed to persist demo meetups', error);
+	}
+};
+
+const normaliseMeetup = (input: AnyMeetup): Meetup => {
+	if (input.source === 'demo') {
+		return {
+			id: input.id,
+			title: input.title,
+			date: input.dateTime,
+			area: input.location,
+			maxParticipants: input.maxParticipants,
+			description: input.description,
+			organizerId: input.host.id,
+			organizerName: input.host.name,
+			createdAt: input.createdAt ?? input.dateTime,
+			participants: (input.participants ?? []).map((participant: any) => ({
+				id: String(participant?.id ?? participant?.email ?? participant?.name),
+				name: String(participant?.name ?? participant?.email ?? 'Member'),
+			})),
+			tags: input.tags,
+			source: 'demo' as MeetupSource,
+		};
+	}
+	return {
+		id: input.id,
+		title: input.title,
+		date: input.date,
+		area: input.area,
+		maxParticipants: input.maxParticipants,
+		description: input.description,
+		organizerId: input.organizerId,
+		organizerName: input.organizerName,
+		createdAt: input.createdAt ?? '',
+		participants: input.participants ?? [],
+		tags: input.tags,
+		source: 'firebase' as MeetupSource,
+	};
+};
+
 export const MeetupProvider = ({ children }: { children: ReactNode }) => {
 	const { currentUserProfile } = useProfile();
 	const userId = currentUserProfile?.id ?? '';
@@ -47,8 +98,33 @@ export const MeetupProvider = ({ children }: { children: ReactNode }) => {
 	const [error, setError] = useState<string | null>(null);
 
 	const hydrate = useCallback(async () => {
-		const data = await getMeetups();
-		setMeetups(data);
+		const raw = await getMeetups();
+		const normalised = raw.map(normaliseMeetup);
+		if (!DEMO_AUTH) {
+			setMeetups(normalised);
+			return;
+		}
+		let stored: Meetup[] = [];
+		try {
+			const serialized = await AsyncStorage.getItem(CUSTOM_DEMO_MEETUPS_KEY);
+			if (serialized) {
+				const parsed = JSON.parse(serialized) as Meetup[];
+				stored = parsed
+					.map(item => ({
+						...item,
+						source: 'demo' as MeetupSource,
+						participants: item.participants ?? [],
+					}))
+					.filter(item => item.id && item.title);
+			}
+		} catch (error) {
+			console.warn('[MeetupProvider] Failed to read stored demo meetups', error);
+		}
+		const merged = [...stored, ...normalised].reduce<Meetup[]>((acc, item) => {
+			if (!acc.some(entry => entry.id === item.id)) acc.push(item);
+			return acc;
+		}, []);
+		setMeetups(merged);
 	}, []);
 
 	const fetchMeetups = useCallback(async () => {
@@ -80,18 +156,29 @@ export const MeetupProvider = ({ children }: { children: ReactNode }) => {
 	}, [fetchMeetups]);
 
 	const addMeetup = useCallback(
-		async (payload: Omit<Meetup, 'id' | 'participants' | 'createdAt'>) => {
+		async (payload: Omit<Meetup, 'id' | 'participants' | 'createdAt' | 'source'>) => {
+			const optimisticSource: MeetupSource = DEMO_AUTH ? 'demo' : 'firebase';
 			const optimistic: Meetup = {
-				id: `temp-${Date.now()}`,
+				id: `${DEMO_AUTH ? 'demo' : 'temp'}-${Date.now()}`,
 				...payload,
+				source: optimisticSource,
 				createdAt: new Date().toISOString(),
 				participants: [],
 			};
-			setMeetups(prev => [optimistic, ...prev]);
 
+			if (DEMO_AUTH) {
+				setMeetups(prev => {
+					const next = [optimistic, ...prev];
+					persistCustomMeetups(next).catch(() => {});
+					return next;
+				});
+				return optimistic;
+			}
+
+			setMeetups(prev => [optimistic, ...prev]);
 			try {
 				const createdId = await createMeetupApi(payload);
-				const persisted = { ...optimistic, id: createdId };
+				const persisted: Meetup = { ...optimistic, id: createdId, source: 'firebase' as MeetupSource };
 				setMeetups(prev =>
 					prev.map(item => (item.id === optimistic.id ? persisted : item)),
 				);
@@ -117,18 +204,22 @@ export const MeetupProvider = ({ children }: { children: ReactNode }) => {
 			};
 			let rollback: MeetupParticipant[] | null = null;
 
-			setMeetups(prev =>
-				prev.map(item => {
-					if (item.id !== meetupId) {
-						return item;
-					}
+			setMeetups(prev => {
+				const next = prev.map(item => {
+					if (item.id !== meetupId) return item;
 					if (item.participants.some(entry => identifiers.includes(entry.id))) {
 						return item;
 					}
 					rollback = item.participants;
 					return { ...item, participants: [...item.participants, participant] };
-				}),
-			);
+				});
+				if (DEMO_AUTH) {
+					persistCustomMeetups(next).catch(() => {});
+				}
+				return next;
+			});
+
+			if (DEMO_AUTH) return;
 
 			try {
 				await joinMeetupApi(meetupId, participant);

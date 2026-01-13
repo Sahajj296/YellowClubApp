@@ -1,8 +1,9 @@
 // src/screens/Meetups/index.tsx
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
+  Animated,
   FlatList,
+  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
@@ -10,11 +11,15 @@ import {
   View,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { getMeetups, Meetup } from '../../services/api/meetups';
-import EventCard from '../../components/EventCard';
+import { getMeetups, type Meetup as NormalizedMeetup } from '../../services/api/meetups';
 import { useProfile } from '../../context/ProfileContext';
+import { mapToDiscoveryMeetup } from '../../utils/mapToDiscoveryMeetup';
+import { AnyMeetup } from '../../types/meetup';
+import { DiscoveryMeetup as DiscoveryMeetupShape } from '../../types/DiscoveryMeetup';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import EventCard from '../../components/EventCard';
 
-type DiscoveryMeetup = Meetup & {
+type DiscoveryMeetupWithStats = DiscoveryMeetupShape & {
   hostMeetupCount: number;
   hostRating?: number;
 };
@@ -22,58 +27,66 @@ type DiscoveryMeetup = Meetup & {
 export default function MeetupsScreen() {
   const navigation = useNavigation<any>();
   const { currentUserProfile } = useProfile();
-  const [meetups, setMeetups] = useState<DiscoveryMeetup[]>([]);
+  const isOrganizer = currentUserProfile?.role === 'organizer';
+  const [meetups, setMeetups] = useState<NormalizedMeetup[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const pulse = useRef(new Animated.Value(0.6)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.6, duration: 900, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  const normalise = useCallback((input: AnyMeetup): NormalizedMeetup => {
+		if (input.source === 'demo') {
+			return {
+				id: input.id,
+				title: input.title,
+				date: input.dateTime,
+				area: input.location,
+				maxParticipants: input.maxParticipants,
+				description: input.description,
+				organizerId: input.host.id,
+				organizerName: input.host.name,
+				createdAt: input.createdAt,
+				participants: input.participants ?? [],
+				tags: input.tags,
+				source: input.source,
+			};
+		}
+		return {
+			id: input.id,
+			title: input.title,
+			date: input.date,
+			area: input.area,
+			maxParticipants: input.maxParticipants,
+			description: input.description,
+			organizerId: input.organizerId,
+			organizerName: input.organizerName,
+			createdAt: input.createdAt,
+			participants: input.participants ?? [],
+			tags: input.tags,
+			source: input.source,
+		};
+	}, []);
 
   const loadMeetups = useCallback(
     async ({ showSpinner = false }: { showSpinner?: boolean } = {}) => {
       if (showSpinner) setLoading(true);
       setError(null);
       try {
-        const data = await getMeetups();
-        const hostTotals = data.reduce<Record<string, number>>((acc, item) => {
-          const key = item.organizerId || item.organizerName;
-          if (!key) return acc;
-          acc[key] = (acc[key] ?? 0) + 1;
-          return acc;
-        }, {});
-        const enriched: DiscoveryMeetup[] = data.map(item => {
-          const stats = (item as any).hostStats ?? {};
-          const explicitHosted =
-            typeof (item as any).hostedCount === 'number'
-              ? (item as any).hostedCount
-              : typeof stats.hostedCount === 'number'
-              ? stats.hostedCount
-              : typeof stats.totalHosted === 'number'
-              ? stats.totalHosted
-              : undefined;
-          const hostMeetupCount =
-            explicitHosted ??
-            hostTotals[item.organizerId] ??
-            hostTotals[item.organizerName] ??
-            1;
-
-          const rawRating =
-            typeof (item as any).rating === 'number'
-              ? (item as any).rating
-              : typeof (item as any).hostRating === 'number'
-              ? (item as any).hostRating
-              : typeof stats.rating === 'number'
-              ? stats.rating
-              : undefined;
-
-          return {
-            ...item,
-            hostMeetupCount,
-            hostRating:
-              typeof rawRating === 'number' && rawRating >= 0
-                ? rawRating
-                : undefined,
-          };
-        });
-        setMeetups(enriched);
+        const rawData = await getMeetups();
+        const normalized = rawData.map(normalise);
+        setMeetups(normalized);
       } catch (err) {
         setError('We could not load meetups right now.');
         setMeetups([]);
@@ -82,7 +95,7 @@ export default function MeetupsScreen() {
         setRefreshing(false);
       }
     },
-    []
+    [normalise],
   );
 
   useFocusEffect(
@@ -104,17 +117,73 @@ export default function MeetupsScreen() {
     loadMeetups({ showSpinner: true });
   }, [loadMeetups]);
 
+  const discoveryMeetups = useMemo(() => meetups.map(mapToDiscoveryMeetup), [meetups]);
+
+  const enrichedMeetups = useMemo<DiscoveryMeetupWithStats[]>(() => {
+    if (!discoveryMeetups.length) {
+      return [];
+    }
+    const hostTotals = discoveryMeetups.reduce<Record<string, number>>((acc, item) => {
+      const key = item.organizerId || item.organizerName;
+      if (!key) return acc;
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+    return discoveryMeetups.map((item, index) => {
+      const source = meetups[index] as any;
+      const stats = source?.hostStats ?? {};
+      const explicitHosted =
+        typeof source?.hostedCount === 'number'
+          ? source.hostedCount
+          : typeof stats.hostedCount === 'number'
+          ? stats.hostedCount
+          : typeof stats.totalHosted === 'number'
+          ? stats.totalHosted
+          : undefined;
+      const hostMeetupCount =
+        explicitHosted ??
+        hostTotals[item.organizerId] ??
+        hostTotals[item.organizerName] ??
+        1;
+
+      const rawRating =
+        typeof source?.rating === 'number'
+          ? source.rating
+          : typeof source?.hostRating === 'number'
+          ? source.hostRating
+          : typeof stats.rating === 'number'
+          ? stats.rating
+          : undefined;
+
+      return {
+        ...item,
+        hostMeetupCount,
+        hostRating: typeof rawRating === 'number' && rawRating >= 0 ? rawRating : undefined,
+      };
+    });
+  }, [discoveryMeetups, meetups]);
+
   const renderItem = useCallback(
-    ({ item }: { item: DiscoveryMeetup }) => <EventCard meetup={item} />,
-    []
+    ({ item, index }: { item: DiscoveryMeetupWithStats; index: number }) => (
+      <EventCard
+        meetup={item}
+        onPress={() => {
+          const target = meetups[index];
+          if (!target?.id) return;
+          navigation.navigate('MeetupDetail', { meetupId: target.id });
+        }}
+      />
+    ),
+    [meetups, navigation],
   );
 
   if (loading) {
     return (
       <View style={styles.screen}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator color="#000000" />
-          <Text style={styles.loadingText}>Loading meetups…</Text>
+          {[0, 1, 2].map(item => (
+            <Animated.View key={`discovery-skeleton-${item}`} style={[styles.skeletonCard, { opacity: pulse }]} />
+          ))}
         </View>
       </View>
     );
@@ -123,10 +192,8 @@ export default function MeetupsScreen() {
   return (
     <View style={styles.screen}>
       <FlatList
-        data={meetups}
-        keyExtractor={item =>
-          item.id ?? `${item.organizerId}-${item.createdAt}`
-        }
+        data={enrichedMeetups}
+        keyExtractor={item => item.id}
         renderItem={renderItem}
         refreshControl={
           <RefreshControl
@@ -137,20 +204,28 @@ export default function MeetupsScreen() {
         }
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListHeaderComponent={
-          error ? (
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorTitle}>We hit a snag</Text>
-              <Text style={styles.errorSubtitle}>
-                {error} Please try again.
+          <View style={styles.headerStack}>
+            <View style={styles.hero}>
+              <Text style={styles.heroTitle}>Explore Curated Meetups</Text>
+              <Text style={styles.heroSubtitle}>
+                Meaningful sessions hosted by trusted community leaders.
               </Text>
-              <TouchableOpacity
-                style={styles.retryButton}
-                onPress={handleRetry}
-              >
-                <Text style={styles.retryText}>Retry</Text>
-              </TouchableOpacity>
             </View>
-          ) : null
+            {error ? (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorTitle}>We hit a snag</Text>
+                <Text style={styles.errorSubtitle}>
+                  {error} Let’s try that again.
+                </Text>
+                <TouchableOpacity
+                  style={styles.retryButton}
+                  onPress={handleRetry}
+                >
+                  <Text style={styles.retryText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
         }
         ListEmptyComponent={
           !error ? (
@@ -173,6 +248,11 @@ export default function MeetupsScreen() {
         ListFooterComponent={<View style={styles.footerSpacer} />}
         contentContainerStyle={styles.listContent}
       />
+      {isOrganizer && (
+        <Pressable style={styles.fab} onPress={handleCreateMeetup}>
+          <Ionicons name='add' size={28} color='#FFD400' style={styles.fabIcon} />
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -180,13 +260,35 @@ export default function MeetupsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#FFD400',
+    backgroundColor: '#FFFDF6',
   },
   listContent: {
     paddingHorizontal: 20,
     paddingVertical: 24,
     paddingBottom: 40,
     flexGrow: 1,
+    paddingTop: 16,
+  },
+  headerStack: {
+    gap: 16,
+    marginBottom: 12,
+  },
+  hero: {
+    backgroundColor: '#FFF8D8',
+    borderRadius: 18,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+  },
+  heroTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1E1E1E',
+    marginBottom: 6,
+  },
+  heroSubtitle: {
+    fontSize: 14,
+    color: '#5C5C5C',
+    lineHeight: 20,
   },
   separator: {
     height: 16,
@@ -198,6 +300,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 20,
+    gap: 12,
+    backgroundColor: '#FFFDF6',
+  },
+  skeletonCard: {
+    width: '100%',
+    height: 160,
+    borderRadius: 16,
+    backgroundColor: '#ECECEC',
   },
   loadingText: {
     marginTop: 12,
@@ -206,7 +317,7 @@ const styles = StyleSheet.create({
     color: '#000000',
   },
   errorContainer: {
-    backgroundColor: '#FFF0D0',
+    backgroundColor: '#FFF1DE',
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
@@ -224,7 +335,7 @@ const styles = StyleSheet.create({
   },
   retryButton: {
     alignSelf: 'flex-start',
-    backgroundColor: '#000000',
+    backgroundColor: '#1F1F1F',
     borderRadius: 12,
     paddingHorizontal: 18,
     paddingVertical: 10,
@@ -262,5 +373,20 @@ const styles = StyleSheet.create({
     color: '#FFD400',
     fontSize: 15,
     fontWeight: '600',
+  },
+  fab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 32,
+    height: 56,
+    width: 56,
+    borderRadius: 28,
+    backgroundColor: '#111111',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+  },
+  fabIcon: {
+    marginBottom: 2,
   },
 });

@@ -8,6 +8,8 @@ import React, {
   useState,
   type ReactNode,
 } from 'react';
+import { useAuth } from './AuthContext';
+import { DEMO_AUTH } from '../config/env';
 
 export type Profile = {
   id: string;
@@ -15,6 +17,8 @@ export type Profile = {
   email: string;
   role: 'user' | 'organizer';
 };
+
+type ProfileMode = 'member' | 'organizer';
 
 interface ProfileContextType {
   profile: Profile | null;
@@ -26,6 +30,10 @@ interface ProfileContextType {
   clearViewedProfile: () => void;
   setProfile: (profile: Profile, options?: { scope?: 'current' | 'viewed' }) => Promise<void>;
   clearProfile: () => Promise<void>;
+  demoRole: 'user' | 'organizer';
+  switchToOrganizer: () => void;
+  switchToMember: () => void;
+  mode: ProfileMode;
 }
 
 const CURRENT_USER_KEY = 'profile_current_user';
@@ -45,6 +53,13 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
   const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(null);
   const [viewedProfile, setViewedProfileState] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const { authUser, setAuthUser } = useAuth();
+  const [demoRole, setDemoRole] = useState<'user' | 'organizer'>(
+    authUser?.role === 'organizer' ? 'organizer' : 'user',
+  );
+  const [mode, setMode] = useState<ProfileMode>(
+    authUser?.role === 'organizer' ? 'organizer' : 'member',
+  );
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -123,6 +138,69 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
     clearViewedProfile();
   }, [clearCurrentUser, clearViewedProfile]);
 
+  useEffect(() => {
+    if (!DEMO_AUTH) {
+      if (currentUserProfile) {
+        const nextMode = currentUserProfile.role === 'organizer' ? 'organizer' : 'member';
+        if (mode !== nextMode) setMode(nextMode);
+      }
+      return;
+    }
+    const next = authUser?.role === 'organizer' ? 'organizer' : 'member';
+    if (mode !== next) setMode(next);
+  }, [DEMO_AUTH, authUser?.role, currentUserProfile, mode]);
+
+  useEffect(() => {
+    const nextRole =
+      authUser?.role === 'organizer' || mode === 'organizer' ? 'organizer' : 'user';
+    if (demoRole !== nextRole) {
+      setDemoRole(nextRole);
+    }
+  }, [authUser?.role, demoRole, mode]);
+
+  const switchToOrganizer = useCallback(() => {
+    if (mode === 'organizer') return;
+    setMode('organizer');
+    setDemoRole('organizer');
+    if (DEMO_AUTH && authUser) {
+      setAuthUser({ ...authUser, role: 'organizer' }).catch(() => {});
+    }
+  }, [DEMO_AUTH, authUser, mode, setAuthUser]);
+
+  const switchToMember = useCallback(() => {
+    if (mode === 'member') return;
+    setMode('member');
+    setDemoRole('user');
+    if (DEMO_AUTH && authUser) {
+      setAuthUser({ ...authUser, role: 'user' }).catch(() => {});
+    }
+  }, [DEMO_AUTH, authUser, mode, setAuthUser]);
+
+  useEffect(() => {
+    if (!DEMO_AUTH || !authUser?.email) {
+      return;
+    }
+    const derivedName =
+      authUser.name ?? (authUser.email.includes('@') ? authUser.email.split('@')[0] : authUser.email);
+    const profileId = authUser.uid || authUser.email;
+    const nextProfile: Profile = {
+      id: profileId,
+      name: derivedName,
+      email: authUser.email,
+      role: mode === 'organizer' ? 'organizer' : 'user',
+    };
+    if (
+      currentUserProfile &&
+      currentUserProfile.id === nextProfile.id &&
+      currentUserProfile.role === nextProfile.role &&
+      currentUserProfile.email === nextProfile.email &&
+      currentUserProfile.name === nextProfile.name
+    ) {
+      return;
+    }
+    hydrateCurrentUser(nextProfile).catch(() => {});
+  }, [DEMO_AUTH, authUser, currentUserProfile, hydrateCurrentUser, mode]);
+
   const value = useMemo<ProfileContextType>(
     () => ({
       profile: viewedProfile ?? currentUserProfile,
@@ -134,6 +212,10 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
       clearViewedProfile,
       setProfile,
       clearProfile,
+      demoRole,
+      switchToOrganizer,
+      switchToMember,
+      mode,
     }),
     [
       clearCurrentUser,
@@ -144,10 +226,16 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
       setProfile,
       setViewedProfile,
       viewedProfile,
+      demoRole,
+      switchToOrganizer,
+      switchToMember,
+      mode,
     ],
   );
 
-  if (loading) return null;
+  if (loading) {
+    return <></>;
+  }
 
   return <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>;
 };

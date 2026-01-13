@@ -3,50 +3,46 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import AuthStack from './AuthStack';
 import MainTabs from './MainTabs';
+import HostProfileScreen from '../screens/HostProfileScreen';
 import BookingConfirmationScreen from '../screens/BookingConfirmationScreen';
-import CreateMeetupScreen from '../screens/CreateMeetupScreen';
-import MeetupDetailScreen from '../screens/MeetupDetailScreen';
-import { MeetupProvider } from '../context/MeetupContext';
-import { Meetup } from '../services/api/meetups';
 
-export type RootStackParamList = {
-	MainTabs: undefined;
-	BookingConfirmation: { title: string; date: string; location: string };
-	CreateMeetup: undefined;
-	MeetupDetail: { meetup: Meetup };
-	Auth: undefined;
-};
-
-const Stack = createNativeStackNavigator<RootStackParamList>();
+const LoggedInStack = createNativeStackNavigator();
+const PublicStack = createNativeStackNavigator();
 
 type RootNavigatorProps = {
-	isLoggedIn: boolean;
+	isLoggedIn?: boolean;
+	navigationKey?: string;
 };
 
 function AuthenticatedStack() {
 	return (
-		<MeetupProvider>
-			<Stack.Navigator screenOptions={{ headerShown: false }}>
-				<Stack.Screen name="MainTabs" component={MainTabs} />
-				<Stack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} />
-				<Stack.Screen name="CreateMeetup" component={CreateMeetupScreen} />
-				<Stack.Screen name="MeetupDetail" component={MeetupDetailScreen} />
-			</Stack.Navigator>
-		</MeetupProvider>
+		<LoggedInStack.Navigator screenOptions={{ headerShown: false }}>
+			<LoggedInStack.Screen name="MainTabs" component={MainTabs} />
+			<LoggedInStack.Screen
+				name="HostProfile"
+				component={HostProfileScreen}
+				options={{ headerShown: true, title: 'Host Profile' }}
+			/>
+			<LoggedInStack.Screen
+				name="BookingConfirmation"
+				component={BookingConfirmationScreen}
+				options={{ headerShown: true, title: 'Booking Confirmed' }}
+			/>
+		</LoggedInStack.Navigator>
 	);
 }
 
 function UnauthenticatedStack() {
 	return (
-		<Stack.Navigator screenOptions={{ headerShown: false }}>
-			<Stack.Screen name="Auth" component={AuthStack} />
-		</Stack.Navigator>
+		<PublicStack.Navigator screenOptions={{ headerShown: false }}>
+			<PublicStack.Screen name="Auth" component={AuthStack} />
+		</PublicStack.Navigator>
 	);
 }
 
-export default function RootNavigator({ isLoggedIn }: RootNavigatorProps) {
+export default function RootNavigator({ isLoggedIn = false, navigationKey = 'root' }: RootNavigatorProps) {
 	return (
-		<NavigationContainer>
+		<NavigationContainer key={navigationKey}>
 			{isLoggedIn ? <AuthenticatedStack /> : <UnauthenticatedStack />}
 		</NavigationContainer>
 	);

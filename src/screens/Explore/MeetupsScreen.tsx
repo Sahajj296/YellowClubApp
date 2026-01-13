@@ -1,7 +1,9 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
+  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
@@ -12,10 +14,13 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useMeetups } from '../../context/MeetupContext';
 import { useProfile } from '../../context/ProfileContext';
 import EventCard from '../../components/EventCard';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { mapToDiscoveryMeetup } from '../../utils/mapToDiscoveryMeetup';
 
 export default function MeetupsScreen() {
   const navigation = useNavigation<any>();
   const { currentUserProfile } = useProfile();
+  const isOrganizer = currentUserProfile?.role === 'organizer';
   const {
     meetups,
     loading,
@@ -24,6 +29,24 @@ export default function MeetupsScreen() {
     fetchMeetups,
     refreshMeetups,
   } = useMeetups();
+
+  const pulse = useRef(new Animated.Value(0.6)).current;
+
+  const discoveryMeetups = useMemo(
+    () => meetups.map(mapToDiscoveryMeetup),
+    [meetups],
+  );
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.6, duration: 900, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
 
   useFocusEffect(
     useCallback(() => {
@@ -36,8 +59,9 @@ export default function MeetupsScreen() {
   if (loading && !meetups.length) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator color="#000" />
-        <Text style={styles.loadingText}>Loading meetups…</Text>
+        {[0, 1, 2].map(item => (
+          <Animated.View key={`meetup-skeleton-${item}`} style={[styles.skeletonCard, { opacity: pulse }]} />
+        ))}
       </View>
     );
   }
@@ -45,9 +69,18 @@ export default function MeetupsScreen() {
   return (
     <View style={styles.container}>
       <FlatList
-        data={meetups}
-        keyExtractor={item => item.id ?? item.createdAt}
-        renderItem={({ item }) => <EventCard meetup={item} />}
+        data={discoveryMeetups}
+        keyExtractor={item => item.id}
+        renderItem={({ item, index }) => (
+          <EventCard
+            meetup={item}
+            onPress={() => {
+              const target = meetups[index];
+              if (!target?.id) return;
+              navigation.navigate('MeetupDetail', { meetupId: target.id });
+            }}
+          />
+        )}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={refreshMeetups} tintColor="#000" />
         }
@@ -56,7 +89,7 @@ export default function MeetupsScreen() {
           error ? (
             <View style={styles.errorContainer}>
               <Text style={styles.errorTitle}>We hit a snag</Text>
-              <Text style={styles.errorSubtitle}>{error}</Text>
+              <Text style={styles.errorSubtitle}>{'Couldn’t load meetups. Try again.'}</Text>
               <TouchableOpacity style={styles.retryButton} onPress={fetchMeetups}>
                 <Text style={styles.retryText}>Retry</Text>
               </TouchableOpacity>
@@ -83,6 +116,11 @@ export default function MeetupsScreen() {
         }
         contentContainerStyle={styles.listContent}
       />
+      {isOrganizer && (
+        <Pressable style={styles.fab} onPress={() => navigation.navigate('CreateMeetup')}>
+          <Ionicons name='add' size={28} color='#FFD400' style={styles.fabIcon} />
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -96,6 +134,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD400',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  skeletonCard: {
+    width: '100%',
+    height: 160,
+    borderRadius: 16,
+    backgroundColor: '#EEEEEE',
   },
   loadingText: { marginTop: 12, fontSize: 15, fontWeight: '600', color: '#000' },
   errorContainer: {
@@ -124,4 +170,19 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   emptyCtaText: { color: '#FFD400', fontSize: 15, fontWeight: '600' },
+  fab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 32,
+    height: 56,
+    width: 56,
+    borderRadius: 28,
+    backgroundColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+  },
+  fabIcon: {
+    marginBottom: 2,
+  },
 });

@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from '../services/firebase';
+import { DEMO_AUTH } from '../config/env';
 
 type AuthUser = {
   uid: string;
@@ -49,27 +50,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     let mounted = true;
-    const loadStoredUser = async () => {
+    const bootstrap = async () => {
       try {
         const stored = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
         if (mounted && stored) {
-          const parsed = JSON.parse(stored) as AuthUser;
-          setAuthUserState(parsed);
+          setAuthUserState(JSON.parse(stored) as AuthUser);
         }
       } catch (error) {
         console.warn('[AuthProvider] Failed to hydrate auth user', error);
       } finally {
-        if (mounted) {
-          setInitializing(false);
-        }
+        if (mounted) setInitializing(false);
       }
     };
-    loadStoredUser();
+    bootstrap();
+
+    if (DEMO_AUTH) {
+      return () => {
+        mounted = false;
+      };
+    }
+
     const unsubscribe = onAuthStateChanged(auth, user => {
       if (!user) {
         persistAuthUser(null).catch(() => {});
+        return;
       }
+      persistAuthUser({
+        uid: user.uid,
+        email: user.email ?? '',
+        name: user.displayName ?? undefined,
+      }).catch(() => {});
     });
+
     return () => {
       mounted = false;
       unsubscribe();
@@ -77,13 +89,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [persistAuthUser]);
 
   const logout = useCallback(async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.warn('[AuthProvider] signOut failed', error);
-    } finally {
-      await persistAuthUser(null);
+    if (!DEMO_AUTH) {
+      try {
+        await signOut(auth);
+      } catch (error) {
+        console.warn('[AuthProvider] signOut failed', error);
+      }
     }
+    await persistAuthUser(null);
   }, [persistAuthUser]);
 
   const value = useMemo<AuthContextType>(
@@ -95,7 +108,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     [authUser, logout, persistAuthUser],
   );
 
-  if (initializing) return null;
+  if (initializing) {
+    return <></>;
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

@@ -31,17 +31,20 @@ const HomeScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFD600',
+    backgroundColor: '#FFFDF6',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 24,
   },
   title: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: '700',
+    color: '#1D1D1F',
   },
   subtitle: {
     fontSize: 16,
     marginTop: 8,
+    color: '#595959',
   },
   buttonContainer: {
     marginTop: 24,
@@ -50,7 +53,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 24,
     bottom: 32,
-    backgroundColor: '#000',
+    backgroundColor: '#111111',
     borderRadius: 24,
     paddingVertical: 14,
     paddingHorizontal: 24,

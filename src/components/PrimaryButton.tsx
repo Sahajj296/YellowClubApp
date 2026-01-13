@@ -1,14 +1,25 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet } from 'react-native';
 
-type Props = {
+type PrimaryButtonProps = {
   title: string;
   onPress: () => void;
+  disabled?: boolean;
 };
 
-const PrimaryButton: React.FC<Props> = ({ title, onPress }) => {
+const PrimaryButton: React.FC<PrimaryButtonProps> = ({ title, onPress, disabled }) => {
+  const handlePress = () => {
+    if (disabled) return;
+    onPress?.();
+  };
+
   return (
-    <TouchableOpacity style={styles.button} onPress={onPress} activeOpacity={0.85}>
+    <TouchableOpacity
+      style={[styles.button, disabled ? { opacity: 0.5 } : null]}
+      onPress={handlePress}
+      disabled={disabled}
+      activeOpacity={disabled ? 1 : 0.7}
+    >
       <Text style={styles.text}>{title}</Text>
     </TouchableOpacity>
   );
