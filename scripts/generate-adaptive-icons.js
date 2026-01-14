@@ -63,9 +63,9 @@ async function createAdaptiveIconLayers() {
   
   const appIconPath = path.join(ASSETS_DIR, 'app-icon.png');
   
-  // Create foreground layer (625x625 centered in 1024x1024)
+  // Create foreground layer (624x624 centered in 1024x1024)
   // This respects the 61% safe zone for adaptive icons
-  const padding = 199; // (1024 - 625) / 2 = 199.5, we'll use 200 to make it even
+  const padding = 200; // (1024 - 624) / 2 = 200, provides even padding
   
   await sharp(appIconPath)
     .resize(624, 624, {
@@ -73,15 +73,15 @@ async function createAdaptiveIconLayers() {
       background: { r: 0, g: 0, b: 0, alpha: 0 }
     })
     .extend({
-      top: 200,
-      bottom: 200,
-      left: 200,
-      right: 200, // 200 + 200 + 624 = 1024
+      top: padding,
+      bottom: padding,
+      left: padding,
+      right: padding, // 200 + 200 + 624 = 1024
       background: { r: 0, g: 0, b: 0, alpha: 0 }
     })
     .toFile(path.join(ASSETS_DIR, 'app-icon-foreground.png'));
   
-  console.log('✓ Created assets/app-icon-foreground.png (1024x1024 with 625x625 safe zone)');
+  console.log('✓ Created assets/app-icon-foreground.png (1024x1024 with 624x624 safe zone)');
   
   // Create background layer (solid color 1024x1024)
   const backgroundSvg = `
