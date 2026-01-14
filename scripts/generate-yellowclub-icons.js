@@ -19,6 +19,24 @@ const DENSITIES = {
   xxxhdpi: { size: 192, scale: 4 }
 };
 
+// Safe zone configuration
+// Using 199px padding as specified in requirements (vs standard 200px)
+// This creates a 626×626px safe zone (1024 - 199*2 = 626)
+// Standard would be 624×624px (1024 - 200*2 = 624)
+const SAFE_ZONE_PADDING = 199;
+
+// Color detection thresholds for foreground extraction
+const COLOR_THRESHOLDS = {
+  // Dark background detection: pixels with all RGB values below this are considered background
+  DARK_PIXEL_MAX_VALUE: 80,
+  
+  // Yellow ring detection thresholds
+  YELLOW_MIN_RED: 150,      // Yellow has high red component
+  YELLOW_MIN_GREEN: 120,    // Yellow has moderate-high green component
+  YELLOW_MAX_BLUE: 150,     // Yellow has low-moderate blue component
+  YELLOW_RED_BLUE_DIFF: 50  // Yellow has significant red-blue difference
+};
+
 async function ensureDirectoryExists(dirPath) {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
@@ -104,8 +122,15 @@ async function extractDarkBackgroundColor() {
   
   console.log(`✓ Extracted background color: ${extractedColor} (RGB: ${avgR}, ${avgG}, ${avgB})`);
   
-  // Use the extracted color or fallback to our defined dark color
-  return extractedColor;
+  // Use the extracted color, but if it's pure black, use our defined dark gray constant
+  // This handles cases where SVG rendering produces black instead of dark gray
+  const backgroundColor = (avgR === 0 && avgG === 0 && avgB === 0) ? DARK_BACKGROUND_COLOR : extractedColor;
+  
+  if (backgroundColor !== extractedColor) {
+    console.log(`  Using ${backgroundColor} instead (YellowClub brand color)`);
+  }
+  
+  return backgroundColor;
 }
 
 async function createAppIconFromBackup() {
@@ -137,15 +162,20 @@ async function createForegroundLayer() {
   const foregroundData = Buffer.alloc(info.width * info.height * 4);
   
   // Define threshold for detecting dark background vs yellow rings
-  // Dark background: low RGB values (< 100)
+  // Dark background: low RGB values across all channels
   // Yellow rings: high R, moderate-high G, low-moderate B
   const isDarkPixel = (r, g, b) => {
-    return r < 80 && g < 80 && b < 80; // Dark gray/charcoal pixels
+    return r < COLOR_THRESHOLDS.DARK_PIXEL_MAX_VALUE && 
+           g < COLOR_THRESHOLDS.DARK_PIXEL_MAX_VALUE && 
+           b < COLOR_THRESHOLDS.DARK_PIXEL_MAX_VALUE;
   };
   
   const isYellowPixel = (r, g, b) => {
-    // Yellow pixels have high R, moderate-high G, low B
-    return r > 150 && g > 120 && b < 150 && (r - b) > 50;
+    // Yellow pixels have high R, moderate-high G, low B, and significant R-B difference
+    return r > COLOR_THRESHOLDS.YELLOW_MIN_RED && 
+           g > COLOR_THRESHOLDS.YELLOW_MIN_GREEN && 
+           b < COLOR_THRESHOLDS.YELLOW_MAX_BLUE && 
+           (r - b) > COLOR_THRESHOLDS.YELLOW_RED_BLUE_DIFF;
   };
   
   // Process each pixel
@@ -178,10 +208,9 @@ async function createForegroundLayer() {
     }
   }
   
-  // Create foreground with safe zone padding (199px as specified, though 200px is more standard)
-  // Using 199px padding: (1024 - 199*2) = 626px safe zone
-  const safeZoneSize = 626; // 1024 - 199*2
-  const padding = 199;
+  // Create foreground with safe zone padding
+  const safeZoneSize = 1024 - (SAFE_ZONE_PADDING * 2);
+  const padding = SAFE_ZONE_PADDING;
   
   // First resize to safe zone, keeping aspect ratio
   const foregroundWithSafeZone = await sharp(foregroundData, {
@@ -205,7 +234,7 @@ async function createForegroundLayer() {
     .png()
     .toFile(path.join(ASSETS_DIR, 'app-icon-foreground.png'));
   
-  console.log('✓ Created assets/app-icon-foreground.png (1024×1024 with 199px padding)');
+  console.log(`✓ Created assets/app-icon-foreground.png (1024×1024 with ${SAFE_ZONE_PADDING}px padding)`);
   console.log('  Yellow rings extracted with transparency, safe zone respected');
 }
 
@@ -345,7 +374,7 @@ async function printCompletionMessage() {
   console.log('\n📋 Summary:');
   console.log('  ✓ Foreground: Three yellow rings with transparency');
   console.log('  ✓ Background: Dark gray (#2D2D2D) solid color');
-  console.log('  ✓ Safe zone: 199px padding respected');
+  console.log(`  ✓ Safe zone: ${SAFE_ZONE_PADDING}px padding respected`);
   console.log('  ✓ All mipmap densities: mdpi, hdpi, xhdpi, xxhdpi, xxxhdpi');
   console.log('\n🧪 Testing Instructions:');
   console.log('  1. Clean build cache:');

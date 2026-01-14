@@ -1,5 +1,24 @@
 This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
 
+# YellowClubApp
+
+A React Native application featuring the YellowClub brand with custom adaptive icons.
+
+## App Icon
+
+The app uses a custom adaptive icon featuring three interlocking yellow rings on a dark background, symbolizing connection and community. For detailed information about the icon implementation, see:
+
+- **[YellowClub Icons Documentation](docs/YELLOWCLUB_ICONS.md)** - Complete guide to the custom icon system
+- **[Adaptive Icons Documentation](docs/ADAPTIVE_ICONS.md)** - General Android adaptive icons information
+
+### Regenerating Icons
+
+To regenerate all app icons from the source:
+
+```bash
+node scripts/generate-yellowclub-icons.js
+```
+
 # Getting Started
 
 >**Note**: Make sure you have completed the [React Native - Environment Setup](https://reactnative.dev/docs/environment-setup) instructions till "Creating a new application" step, before proceeding.
